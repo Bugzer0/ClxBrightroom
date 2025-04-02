@@ -138,6 +138,10 @@ public final class CanvasView: PixelEditorCodeBasedView {
       $0.resolvedDrawnPaths = paths
     }
   }
+  
+  public var resolvedDrawnPaths: [DrawnPath] {
+    return store.state.resolvedDrawnPaths
+  }
    
   public override func layoutSubviews() {
     super.layoutSubviews()

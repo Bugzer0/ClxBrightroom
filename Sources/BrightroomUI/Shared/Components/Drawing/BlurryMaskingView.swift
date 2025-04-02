@@ -93,6 +93,8 @@ public final class BlurryMaskingView: PixelEditorCodeBasedView, UIScrollViewDele
   
   private let canvasView = CanvasView()
   
+  private let colorCanvasView = CanvasView()
+  
   private var subscriptions = Set<AnyCancellable>()
   
   private let editingStack: EditingStack
@@ -140,11 +142,22 @@ public final class BlurryMaskingView: PixelEditorCodeBasedView, UIScrollViewDele
 
       containerView.addContent(blurryImageView)
       containerView.addContent(canvasView)
+      containerView.addContent(colorCanvasView)
       containerView.addContent(drawingView)
       
       blurryImageView.accessibilityIdentifier = "blurryImageView"
       blurryImageView.isUserInteractionEnabled = false
       blurryImageView.contentMode = .scaleAspectFit
+      
+      canvasView.isUserInteractionEnabled = false
+      canvasView.alpha = 0.5
+      canvasView.backgroundColor = .clear
+      
+      colorCanvasView.isUserInteractionEnabled = false
+      colorCanvasView.alpha = 0.5
+      
+      drawingView.isUserInteractionEnabled = true
+      drawingView.backgroundColor = .clear
       
       blurryImageView.mask = canvasView
       clipsToBounds = true
@@ -158,23 +171,45 @@ public final class BlurryMaskingView: PixelEditorCodeBasedView, UIScrollViewDele
           return
         }
         
-        currentBrush = .init(color: .black, pixelSize: pixelSize)
+        print("Begin drawing with pixel size: \(pixelSize)")  // Debug log
+        
+        currentBrush = .init(color: UIColor.systemYellow, pixelSize: pixelSize, alpha: 0.7)
 
         let drawnPath = DrawnPath(brush: currentBrush!, path: path)
         canvasView.previewDrawnPath = drawnPath
+        
+        let colorBrush = OvalBrush(color: UIColor.systemYellow, pixelSize: pixelSize, alpha: 1.0)
+        let colorPath = DrawnPath(brush: colorBrush, path: path)
+        colorCanvasView.previewDrawnPath = colorPath
       }
+      
       $0.panning = { [unowned self] path in
+        // print("Panning")  // Debug log
         canvasView.updatePreviewDrawing()
+        colorCanvasView.updatePreviewDrawing()
       }
+      
       $0.didFinishPan = { [unowned self] path in
+        print("Finish drawing")  // Debug log
+        
         canvasView.updatePreviewDrawing()
+        colorCanvasView.updatePreviewDrawing()
         
         let _path = (path.copy() as! UIBezierPath)
         
         let drawnPath = DrawnPath(brush: currentBrush!, path: _path)
         
         canvasView.previewDrawnPath = nil
+        colorCanvasView.previewDrawnPath = nil
+        
         editingStack.append(blurringMaskPaths: CollectionOfOne(drawnPath))
+        
+        let colorBrush = OvalBrush(color: UIColor.systemYellow, pixelSize: currentBrush!.pixelSize, alpha: 1.0)
+        let colorPath = DrawnPath(brush: colorBrush, path: _path)
+        let currentPaths = colorCanvasView.resolvedDrawnPaths
+        colorCanvasView.setResolvedDrawnPaths(currentPaths + [colorPath])
+        
+        editingStack.takeSnapshot()
         
         currentBrush = nil
       }
@@ -189,7 +224,7 @@ public final class BlurryMaskingView: PixelEditorCodeBasedView, UIScrollViewDele
         state.ifChanged(\.currentEdit.crop).do { cropRect in
 
           // scaling for drawing paths
-          [self.canvasView, self.drawingView].forEach { view in
+          [self.canvasView, self.drawingView, self.colorCanvasView].forEach { view in
             view.bounds = .init(origin: .zero, size: cropRect.imageSize)
             let scale = Geometry.diagonalRatio(to: cropRect.scrollViewContentSize(), from: cropRect.imageSize)
             view.transform = .init(scaleX: scale, y: scale)
@@ -204,6 +239,17 @@ public final class BlurryMaskingView: PixelEditorCodeBasedView, UIScrollViewDele
               $0.proposedCrop = cropRect
             }
           }
+        }
+        
+        state.ifChanged(\.currentEdit.drawings.blurredMaskPaths).do { paths in
+          self.canvasView.setResolvedDrawnPaths(paths)
+          
+          // Tạo các đường vẽ màu tương ứng
+          let colorPaths = paths.map { path -> DrawnPath in
+            let colorBrush = OvalBrush(color: UIColor.systemYellow, pixelSize: path.brush.pixelSize, alpha: 1.0)
+            return DrawnPath(brush: colorBrush, path: path.bezierPath)
+          }
+          self.colorCanvasView.setResolvedDrawnPaths(colorPaths)
         }
       }
       
@@ -231,7 +277,7 @@ public final class BlurryMaskingView: PixelEditorCodeBasedView, UIScrollViewDele
 
         editingStack.sinkState { [weak self] (state: Changes<EditingStack.State>) in
           
-          guard let self = self else { return }        
+          guard let self = self else { return }
           
           if let state = state.mapIfPresent(\.loadedState) {
             
@@ -317,7 +363,7 @@ public struct SwiftUIBlurryMaskingView: UIViewControllerRepresentable {
     }
   }
 
-  public func blushSize(_ brushSize: CanvasView.BrushSize) -> Self {
+  public func brushSize(_ brushSize: CanvasView.BrushSize) -> Self {
 
     var modified = self
     modified._brushSize = brushSize
