@@ -19,6 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+import Combine
 import CoreImage
 import MetalKit
 import SwiftUI
@@ -34,7 +35,7 @@ public enum EditingStackError: Error, Sendable {
 ///
 /// - Attension: Source text
 /// Please make sure of EditingStack is started state before editing in UI with calling `start()`.
-open class EditingStack: Hashable, StoreDriverType {
+open class EditingStack: Hashable, StoreDriverType, ObservableObject {
 
   private static let centralQueue = DispatchQueue.init(
     label: "app.muukii.Brightroom.EditingStack.central",
@@ -207,6 +208,11 @@ open class EditingStack: Hashable, StoreDriverType {
   // MARK: - Stored Properties
 
   public let store: Store<State, Never>
+  
+  /// Publisher for SwiftUI ObservableObject conformance
+  public let objectWillChange = ObservableObjectPublisher()
+  
+  private var objectWillChangeSubscription: StoreStateSubscription?
 
   public let options: Options
 
@@ -261,6 +267,11 @@ open class EditingStack: Hashable, StoreDriverType {
       } + presetStorage.presets
 
     self.imageProvider = imageProvider
+    
+    // Subscribe to state changes for SwiftUI ObservableObject
+    objectWillChangeSubscription = sinkState(dropsFirst: true, queue: .mainIsolated()) { [weak self] _ in
+      self?.objectWillChange.send()
+    }
   }
 
   /**
